@@ -150,6 +150,11 @@ python prep_project.py <MDK-ARM 目录或 Project.uvproj> [--check] [--flm <FLM 
 - ③ **每个例程不一样**（例程 3 是 7、例程 12 是 15），所以必须逐个检查，不能照抄
 - 判据：烧录日志 `flash.log` 里有没有 **`Application running ...`** 这句
 
+> **想手改 / 想核对自己改对没有**：手册仓库里的 **`03-工程改动/`** 存了这三处缺陷在
+> `Project.uvproj` / `Project.uvopt` 里的**改动 diff**（作者本工程那一版），逐条标了对应哪处缺陷、
+> 以及想在 Keil 界面里点哪里改。**它是说明书不是补丁**（`-FO` 每个例程不一样、`-FP0` 里是作者机器的
+> 绝对路径，patch 不上去），所以还是**优先跑 `prep_project.py`**。
+
 ## 其它几个坑（都踩过）
 
 - **`-f` 只下载、不编译。** Keil 命令行烧的是「**上次编译出来的**」那份 `<OutputName>.axf`，
