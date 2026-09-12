@@ -1,0 +1,17 @@
+# 原图 4.4 MB，保留在本机不入库；仓库里用的是压缩版 images/01-实物接线全貌.jpg
+stm32-串口-stlink.jpg
+
+# Keil / 编译产物
+*.o
+*.d
+*.crf
+*.dep
+*.lnp
+*.htm
+*.plg
+*.bak
+*.bak-*
+*.uvgui.*
+*.scvd
+build.log
+flash.log
