@@ -109,8 +109,19 @@ GND   [5][6]  GND       ← 用 5 或 6
 > ✅ **插反了不会烧东西。** 3 针排针没有防呆，反插只会让 **SWDIO 和 SWCLK 对调**、GND 仍在中间，
 > 表现就是 Keil 连不上/识别不到内核。**对调回来即可，不会损坏板子或 ST-Link。**
 
-**怎么知道接对了**：ST-Link 驱动装好、线接对之后，Keil 能识别到内核（能烧录、或 Debug 里能连上）。
-**读到内核 = 线对了**；读不到先怀疑上面那两个信号线是不是反了。
+**怎么知道接对了 —— 不用烧录，在 Keil 里三十秒就能看出来：**
+
+1. 用 Keil 打开工程，点工具栏那个**魔术棒**（Options for Target）
+2. 切到 **Debug** 页 → 右上角 **Use** 下拉选 **ST-Link Debugger**
+3. 点它右边的 **Settings** → 弹窗里**能看到插着的 ST-Link 设备**（列表/下拉里会列出设备）
+4. 没插设备，那一栏就是**空的**（提示**无连接设备**）
+
+**能看到设备 = ST-Link 认到了。** 再看弹窗里 **SW Device** 那一栏有没有内核 ID
+（本板实测 **`SW-DP IDCODE = 2BA01477`**）—— **读到 ID = 三根信号线也接对了**；
+读不到 ID 先怀疑 SWDIO / SWCLK 是不是反了（见上面那条）。
+
+> ⚠️ **看完把弹窗和 Keil 都关掉**（点 **Cancel** 退出即可）。这个界面**本身就占着 ST-Link**，
+> 留着它再去跑 §3 的命令行烧录，就会撞上 §6.4 的 `Target DLL has been cancelled`。
 
 ### 1.2 供电：那个**黑色拨键**（电源选择）
 
@@ -250,7 +261,7 @@ Erase Done.Programming Done.Verify OK.Application running ...
 ```
 
 > **判据：`flash.log` 里必须出现 `Application running ...`。**
-> 有它就代表下载完芯片**自动复位并开始运行**；没有它 = 芯片被留在**停机**状态（见 6.5）。
+> 有它就代表下载完芯片**自动复位并开始运行**；没有它 = 芯片被留在**停机**状态（见 6.6）。
 
 ### 4.3 串口
 
@@ -353,7 +364,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<工具目录>\flash_and_ru
 
 → **Keil 界面开着**，它占着 ST-Link。关掉 Keil 再用命令行。**ST-Link 只能被一个程序占用。**
 
-### 6.5 下载成功、`Verify OK`，但串口一个字都没有
+### 6.5 Keil 里看不到 ST-Link 设备（`Settings` 里那栏是空的 / 无连接设备）
+
+进去看的地方就是 §1.1.1 那条路：**魔术棒 → Debug → Use 选 `ST-Link Debugger` → Settings**。
+那一栏**空着**（或写着**无连接设备**）= **Keil 根本没认到这个 ST-Link**，跟板子、跟接线都无关。查三样：
+
+| 查什么 | 怎么查 |
+|---|---|
+| **驱动** | 设备管理器里有没有 ST-Link 设备（`STMicroelectronics STLink`）。没有就装：资料包 `7.万能驱动` 里有，Keil 安装时一般也会带上 |
+| **线** | USB 线插的是**电脑**、不是充电头；换一根线、换一个 USB 口。ST-Link 那根是数据线，接头不对就换 |
+| **被别的程序占着** | 开了两个 Keil、或 ST-Link Utility / CubeProgrammer 开着，都会读不到。**全关掉再试** |
+
+> **设备能列出来、只是 SW Device 里没有 IDCODE** —— 那是**另一回事**：ST-Link 认到了，
+> 但**认不到芯片**。这时回去看 §1.1.1 那三根线（SWDIO / SWCLK 是不是反了）
+> 和板子有没有电（POW 灯亮不亮，见 §1.2）。
+
+### 6.6 下载成功、`Verify OK`，但串口一个字都没有
 
 → 驱动串是 `-FO7` 而不是 **`-FO15`**（= Keil 的 **Reset and Run**）。
 芯片下载完被留在**停机**状态，主循环没跑起来。
@@ -361,17 +387,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<工具目录>\flash_and_ru
 **判据**：`flash.log` 里有没有 **`Application running ...`**。
 跑 `prep_project.py` 改掉。**注意 `-TO18`（HW RESET）不用改** —— SWD 口没有 NRST 线也照样能自动运行。
 
-### 6.6 编译报 `cannot open source input file "core_cm3.h"`
+### 6.7 编译报 `cannot open source input file "core_cm3.h"`
 
 → `IncludePath` 缺 `..\..\..\Libraries\CMSIS\Include`。跑 `prep_project.py`。
 （这正是厂家截图里那个问题，资料包只给了截图没给解法。）
 
-### 6.7 「用 Keil 的 Load 下载了，但行为没变」
+### 6.8 「用 Keil 的 Load 下载了，但行为没变」
 
 → **没重新编译**。`-f` / Load 只下载不编译，烧的还是上次那份 axf。
 先编译（`-b`），或用脚本（默认带编译）。判据：`.axf` 时间戳。
 
-### 6.8 以后 ②③ 两个坑又回来了
+### 6.9 以后 ②③ 两个坑又回来了
 
 → **`.uvopt` 被 Keil 界面覆写了**。谁在 Options for Target → Utilities → Settings → Flash Download
 里动过算法列表，那条 `<Name>` 串就可能被重写。
@@ -389,6 +415,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<工具目录>\flash_and_ru
 ```
 □ 黑色拨键（电源选择）拨到左边 = USB 档，并拨到底，POW 灯亮
 □ ST-Link 的 SWDIO/SWCLK/GND → 板上 3 针 SWD 口（就 3 根线，ST-Link 不给板子供电）
+□ Keil 里认得到：魔术棒 → Debug → Use 选 ST-Link Debugger → Settings 能看到设备（§1.1.1）
 □ 板子 USB1（CH340）→ 电脑 USB 口（既供电又是串口）      ← 最容易漏
 □ Keil 界面已关闭（否则 ST-Link 被占用）
 □ 串口工具：<COM 口> / 9600 / 8-N-1 / 流控「无」
