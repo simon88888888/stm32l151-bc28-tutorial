@@ -340,6 +340,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<工具目录>\flash_and_ru
 
 > ③ **每个例程取值还不一样**（例程 3 是 `-FO7`、例程 12 已经是 `-FO15`），**不能照抄**，必须逐个检查。
 
+> **这三处缺陷"到底改在哪几行"**，仓库里 `03-工程改动\` 存了作者本工程（Hello World 那个工程）
+> 的 `Project.uvproj` / `Project.uvopt` 改动 diff，逐条标了对应缺陷、以及想在 Keil 界面里手改该点哪里。
+> 注意它是**说明书不是补丁**（上面说了每个例程不一样，patch 不上去），核对或手改时看它。
+
 **已实测**：例程 3 拷到 `tcp-demo\` 跑完 prep → 编译 `0 Error / 0 Warning` → 下载 `Verify OK / Application running`
 → 串口打出它自己的启动日志 `EINK DISPLAY BMP PICTURE OK` / `init stm32L COM1` / `start init bc28`。
 
@@ -484,7 +488,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<工具目录>\flash_and_ru
 
 ### 8.4 本篇要跟哪几样东西一起发
 
-单发一份文档是不完整的，配齐这四样读者才能照做：
+单发一份文档是不完整的，配齐这几样读者才能照做：
 
 | 一起发什么 | 为什么 |
 |---|---|
@@ -492,8 +496,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<工具目录>\flash_and_ru
 | **② 本套脚本**（仓库里的 `02-工具\`） | 没有它 §3 的"双击"跑不起来（见 §2.0 ③）。里面有 `flash_and_run.*`、`read_com.*`、`probe_boot.ps1`、`prep_project.py`、`inspect_proj.py` 和一份工具说明 |
 | **③ 厂家资料包**（`<资料包>`） | §5.2 换例程、§9.2 第 2 篇要的 QNavigator，都在里面。**只能跟卖家/作者要**，3.4 G 传不上仓库 |
 | **④ Hello World 的源码 `main.c`**（仓库里的 `01-环境搭建/main.c`） | §4 那三段日志就是它跑出来的。**想自己造一个工程**：按 §5.2 把资料包的**例程 1** 拷到短路径、跑一遍 `prep_project.py`，再把这个 `main.c` 覆盖到 `Project\Test\main.c` 即可 |
+| **⑤ 工程改动的 diff**（仓库里的 `03-工程改动/`） | §5.2 那三处缺陷**到底改在哪几行**，这里给了 `Project.uvproj` / `Project.uvopt` 的 diff 和逐条对照。想手改、或者想核对自己改对没有，看它 |
 
-> ①②④ 这三样**都已经在这个仓库里**，读者 clone 或点 `Code → Download ZIP` 就全拿到了。
+> ①②④⑤ 这几样**都已经在这个仓库里**，读者 clone 或点 `Code → Download ZIP` 就全拿到了。
 > 只有 **③ 厂家资料包**（3.4 G）没法放进来，需要单独向卖家/作者索要 —— 它**不是跑通本篇的必需品**，
 > 但第 2–4 篇要用的 QNavigator、墨水屏资料、13 个例程都在里面，建议一开始就一起要过来。
 

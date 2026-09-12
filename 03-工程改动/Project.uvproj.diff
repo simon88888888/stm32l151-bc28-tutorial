@@ -1,0 +1,112 @@
+# Project.uvproj：厂家原件 → 已修 的 diff
+#
+# 原始件 = 厂家那版（2018-11-27，md5 1b25b41ec29e80cb2635d81171cac77c，120560 字节）
+# 已修件 = 本工程现在用的（127303 字节）
+#
+# ⚠️ 这不是完整 diff。Keil 5 打开并保存这个 2014 年的老工程时，会把它自己的一整套默认
+#    选项（<uC99> <v6WtE> <ComprImg> ... 约 180 行）补写进去，那些 hunk 与本次修复无关，
+#    已整块滤掉（滤掉 76 个 hunk，都是这类）。
+#
+# 下面留下的就是真正改动的地方，一共 5 处：
+#   1) <FlashDriverDll>  target 1 的烧录驱动串：-FO7 → -FO15，并补上 -FP0(FLM 路径)
+#   2) <IncludePath> × 4 个 target：尾巴上补上 ..\..\..\Libraries\CMSIS\Include
+#
+# 行号仍是真实文件里的行号，可以照着在 Keil 界面里改。
+#
+# 还要注意：每个 hunk 里都夹着几行 Keil 顺手补的默认项（<uC99> <useXO> <v6Lang> …）。它们
+#    紧挨着被改的那行，没法整块滤掉。**那些不是修复内容** —— 看 `-`/`+` 成对出现、且带
+#    <IncludePath> / <FlashDriverDll> 的那两行，才是真正改的地方。
+#
+#    （为什么 IncludePath 的改动会跟这批默认项凑在同一个 hunk 里：Keil 是往
+#     <uSurpInc> 和 <VariousControls> 之间插的这些标签，IncludePath 就在 <VariousControls>
+#     的下一层，所以「新增标签」和「改 IncludePath」在 diff 里只隔一行，被当成同一处改动。）
+#
+--- Project.uvproj.原始(厂家)
++++ Project.uvproj.已修
+@@ -18,5 +20,5 @@
+           <FlashUtilSpec></FlashUtilSpec>
+           <StartupFile>"STARTUP\ST\STM32L1xx\startup_stm32l1xx_mdp.s" ("STM32L1xx Medium+ density Startup Code")</StartupFile>
+-          <FlashDriverDll>ULP2CM3(-O207 -S8 -C0 -FO7 -FD20000000 -FC800 -FN1 -FF0STM32L1xx_256 -FS08000000 -FL040000)</FlashDriverDll>
++          <FlashDriverDll>ULP2CM3(-O207 -S8 -C0 -FO15 -FD20000000 -FC800 -FN1 -FF0STM32L1xx_256 -FS08000000 -FL040000 -FP0(C:\Keil_v5\ARM\PACK\Keil\STM32L1xx_DFP\1.2.0\Flash\STM32L1xx_256.FLM))</FlashDriverDll>
+           <DeviceId>6524</DeviceId>
+           <RegisterFile>stm32l1xx.h</RegisterFile>
+@@ -348,9 +363,18 @@
+             <uThumb>0</uThumb>
+             <uSurpInc>0</uSurpInc>
++            <uC99>0</uC99>
++            <useXO>0</useXO>
++            <v6Lang>1</v6Lang>
++            <v6LangP>1</v6LangP>
++            <vShortEn>1</vShortEn>
++            <vShortWch>1</vShortWch>
++            <v6Lto>0</v6Lto>
++            <v6WtE>0</v6WtE>
++            <v6Rtti>0</v6Rtti>
+             <VariousControls>
+               <MiscControls></MiscControls>
+               <Define>USE_STDPERIPH_DRIVER, STM32L1XX_MD, USE_STM32L152_EVAL</Define>
+               <Undefine></Undefine>
+-              <IncludePath>..\;..\..\..\Libraries\CMSIS\Device\ST\STM32L1xx\Include;..\..\..\Libraries\STM32L1xx_StdPeriph_Driver\inc;..\..\..\Utilities\STM32_EVAL;..\..\..\Utilities\STM32_EVAL\Common;..\..\..\Utilities\STM32_EVAL\STM32L152_EVAL;..\..\HARDWARE\usart;..\..\HARDWARE\TIMER;..\..\HARDWARE\BC28;..\..\HARDWARE\LED;..\..\HARDWARE\eink</IncludePath>
++              <IncludePath>..\;..\..\..\Libraries\CMSIS\Device\ST\STM32L1xx\Include;..\..\..\Libraries\STM32L1xx_StdPeriph_Driver\inc;..\..\..\Utilities\STM32_EVAL;..\..\..\Utilities\STM32_EVAL\Common;..\..\..\Utilities\STM32_EVAL\STM32L152_EVAL;..\..\HARDWARE\usart;..\..\HARDWARE\TIMER;..\..\HARDWARE\BC28;..\..\HARDWARE\LED;..\..\HARDWARE\eink;..\..\..\Libraries\CMSIS\Include</IncludePath>
+             </VariousControls>
+           </Cads>
+@@ -1103,9 +1163,18 @@
+             <uThumb>0</uThumb>
+             <uSurpInc>0</uSurpInc>
++            <uC99>0</uC99>
++            <useXO>0</useXO>
++            <v6Lang>1</v6Lang>
++            <v6LangP>1</v6LangP>
++            <vShortEn>1</vShortEn>
++            <vShortWch>1</vShortWch>
++            <v6Lto>0</v6Lto>
++            <v6WtE>0</v6WtE>
++            <v6Rtti>0</v6Rtti>
+             <VariousControls>
+               <MiscControls></MiscControls>
+               <Define>USE_STDPERIPH_DRIVER, STM32L1XX_MDP</Define>
+               <Undefine></Undefine>
+-              <IncludePath>..\;..\..\..\Libraries\CMSIS\Device\ST\STM32L1xx\Include;..\..\..\Libraries\STM32L1xx_StdPeriph_Driver\inc</IncludePath>
++              <IncludePath>..\;..\..\..\Libraries\CMSIS\Device\ST\STM32L1xx\Include;..\..\..\Libraries\STM32L1xx_StdPeriph_Driver\inc;..\..\..\Libraries\CMSIS\Include</IncludePath>
+             </VariousControls>
+           </Cads>
+@@ -1858,9 +1963,18 @@
+             <uThumb>0</uThumb>
+             <uSurpInc>0</uSurpInc>
++            <uC99>0</uC99>
++            <useXO>0</useXO>
++            <v6Lang>1</v6Lang>
++            <v6LangP>1</v6LangP>
++            <vShortEn>1</vShortEn>
++            <vShortWch>1</vShortWch>
++            <v6Lto>0</v6Lto>
++            <v6WtE>0</v6WtE>
++            <v6Rtti>0</v6Rtti>
+             <VariousControls>
+               <MiscControls></MiscControls>
+               <Define>USE_STDPERIPH_DRIVER, STM32L1XX_HD, USE_STM32L152D_EVAL</Define>
+               <Undefine></Undefine>
+-              <IncludePath>..\;..\..\..\Libraries\CMSIS\Device\ST\STM32L1xx\Include;..\..\..\Libraries\STM32L1xx_StdPeriph_Driver\inc;..\..\..\Utilities\STM32_EVAL;..\..\..\Utilities\STM32_EVAL\Common;..\..\..\Utilities\STM32_EVAL\STM32L152D_EVAL</IncludePath>
++              <IncludePath>..\;..\..\..\Libraries\CMSIS\Device\ST\STM32L1xx\Include;..\..\..\Libraries\STM32L1xx_StdPeriph_Driver\inc;..\..\..\Utilities\STM32_EVAL;..\..\..\Utilities\STM32_EVAL\Common;..\..\..\Utilities\STM32_EVAL\STM32L152D_EVAL;..\..\..\Libraries\CMSIS\Include</IncludePath>
+             </VariousControls>
+           </Cads>
+@@ -2613,9 +2763,18 @@
+             <uThumb>0</uThumb>
+             <uSurpInc>0</uSurpInc>
++            <uC99>0</uC99>
++            <useXO>0</useXO>
++            <v6Lang>1</v6Lang>
++            <v6LangP>1</v6LangP>
++            <vShortEn>1</vShortEn>
++            <vShortWch>1</vShortWch>
++            <v6Lto>0</v6Lto>
++            <v6WtE>0</v6WtE>
++            <v6Rtti>0</v6Rtti>
+             <VariousControls>
+               <MiscControls></MiscControls>
+               <Define>USE_STDPERIPH_DRIVER, STM32L1XX_XL</Define>
+               <Undefine></Undefine>
+-              <IncludePath>..\;..\..\..\Libraries\CMSIS\Device\ST\STM32L1xx\Include;..\..\..\Libraries\STM32L1xx_StdPeriph_Driver\inc</IncludePath>
++              <IncludePath>..\;..\..\..\Libraries\CMSIS\Device\ST\STM32L1xx\Include;..\..\..\Libraries\STM32L1xx_StdPeriph_Driver\inc;..\..\..\Libraries\CMSIS\Include</IncludePath>
+             </VariousControls>
+           </Cads>
