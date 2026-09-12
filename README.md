@@ -116,6 +116,9 @@ GND   [5][6]  GND       ← 用 5 或 6
 3. 点它右边的 **Settings** → 弹窗里**能看到插着的 ST-Link 设备**（列表/下拉里会列出设备）
 4. 没插设备，那一栏就是**空的**（提示**无连接设备**）
 
+> **不想开 Keil 也能查这一步**：插上 ST-Link，设备管理器 → **通用串行总线设备** 下面能看到
+> **`STM32 STLINK`**，就说明电脑已经认到它了（拔掉就消失）。
+
 **能看到设备 = ST-Link 认到了。** 再看弹窗里 **SW Device** 那一栏有没有内核 ID
 （本板实测 **`SW-DP IDCODE = 2BA01477`**）—— **读到 ID = 三根信号线也接对了**；
 读不到 ID 先怀疑 SWDIO / SWCLK 是不是反了（见上面那条）。
@@ -178,7 +181,7 @@ GND   [5][6]  GND       ← 用 5 或 6
 | **Keil MDK-ARM** | 编译 + 下载 | 作者用的是 **5.24a**（装在 `<Keil 安装目录>`）。**必须带 ARM Compiler 5（AC5）** —— 作者机器上是 `V5.06 update 5 (build 528)` |
 | **器件包 `Keil.STM32L1xx_DFP` 1.2.0** | 提供烧写算法 `STM32L1xx_256.FLM` | **不装 → 下载报 `Flash download failed - Cortex-M3`**。装完**重启 Keil** 才认。包见 §2.0 ④ |
 | **CH340 驱动** | USB1 当串口用 | 装完设备管理器里出现 COM 口（资料包 `7.万能驱动` 里有） |
-| **ST-Link 驱动** | SWD 下载 | 装 Keil 时一般会一并装上（资料包 `7.万能驱动` 里也有） |
+| **ST-Link 驱动** | SWD 下载 | 装 Keil 时一般会一并装上（资料包 `7.万能驱动` 里也有）。**装好没装好怎么验**：插上 ST-Link，设备管理器 → **通用串行总线设备** 下面能看到 **`STM32 STLINK`** |
 | **Python 3** | 只有 `prep_project.py` 用 | 不换例程就不需要 |
 
 > ⚠️ 这批代码是 2018 年的 ST 标准外设库（SPL），**用 AC6（ARMCLANG）编不过**，必须 AC5。
@@ -371,7 +374,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<工具目录>\flash_and_ru
 
 | 查什么 | 怎么查 |
 |---|---|
-| **驱动** | 设备管理器里有没有 ST-Link 设备（`STMicroelectronics STLink`）。没有就装：资料包 `7.万能驱动` 里有，Keil 安装时一般也会带上 |
+| **驱动** | 插着 ST-Link，看**设备管理器 → 通用串行总线设备** 下面有没有 **`STM32 STLINK`** 这一项（本机实测的显示名就是这个）。没有就装驱动：资料包 `7.万能驱动` 里有，Keil 安装时一般也会带上 |
 | **线** | USB 线插的是**电脑**、不是充电头；换一根线、换一个 USB 口。ST-Link 那根是数据线，接头不对就换 |
 | **被别的程序占着** | 开了两个 Keil、或 ST-Link Utility / CubeProgrammer 开着，都会读不到。**全关掉再试** |
 
