@@ -43,7 +43,9 @@ bat 找到主脚本后会自动定位工程。（**别把 `.ps1`/`.py` 一起拷
 | **器件包 `Keil.STM32L1xx_DFP`** | 提供 `STM32L1xx_256.FLM` 烧写算法 | 双击那个 `.pack` 装。**不装 = 下载报 `Flash download failed - Cortex-M3`**。装完**重启 Keil** 才认 |
 | **CH340 串口驱动**（WCH CH341SER） | 板子**自己的 USB1** 口当串口用，看 log 靠它 | 装完设备管理器里出现一个 COM 口 |
 | **ST-Link 驱动** | SWD 烧录/调试 | Keil MDK 安装时一般会一并装上 |
-| **Python 3** | 只有 `prep_project.py` 用（修厂家例程的缺陷） | 不修例程就不需要 |
+| **Python 3** | `prep_project.py`（修厂家例程的缺陷）+ `at_console.py`（敲 AT 指令）用 | 两个都是标准库 + 一个 `pyserial`；不用就都不需要 |
+
+> `at_console.py` 额外要 **`pip install pyserial`**（另外两个 `.py` 是纯标准库，不装任何东西）。
 
 > **AC5 是硬门槛。** 这批 2018 年的 ST 标准外设库（SPL）代码用 AC6/ARMCLANG 编不过。
 > 老的 MDK（5.24a 这种）自带 AC5；**新的 MDK（5.37 以后）要单独装 AC5 插件**，
@@ -74,7 +76,10 @@ bat 找到主脚本后会自动定位工程。（**别把 `.ps1`/`.py` 一起拷
 > 完整操作手册（编译 → ST-Link 下载 → 串口打印，含故障排查）：
 > **`D:\claudecode\stm32-bc28\操作手册.md`**（网上那份就是它的副本：
 > **https://github.com/simon88888888/stm32l151-bc28-tutorial**）
-> —— **系列第 1 篇：搭好初始环境**（第 2 篇起是 BC28 联网、墨水屏，还没写）
+> —— **系列第 1 篇：搭好初始环境**
+>
+> 续章 **[第 2 篇：BC28 联网与 AT 指令实测](../第2篇-BC28联网与AT指令实测.md)** 已发布
+> （墨水屏是第 4 篇，还没写）。**`at_console.py` 就是配着第 2 篇用的。**
 >
 > 这套脚本在本仓库里的位置就是 **`02-工具\`**，跟手册一起下载。
 
@@ -123,6 +128,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<本目录>\flash_and_run.p
 | `probe_boot.ps1` | 串口下载（mcuisp 那条路）诊断：被动听 / 发 `0x7F` 等 `0x79` / RTS 脉冲复位 |
 | `prep_project.py` | 修厂家例程工程的**三处缺陷**，见下 |
 | `inspect_proj.py` | **体检工具**（只报告、不改）：列出一个工程的 target / IncludePath / `-FP0` / `-FO` 现状。动手修之前先看它 |
+| `at_console.py` | **敲 AT 指令**（第 2 篇用的）：自动找 CH340 那个 COM 口，把指令发给 BC28 并**原样**显示回显。**要先烧好透传固件**，否则模块根本收不到 —— 见 [第 2 篇](../第2篇-BC28联网与AT指令实测.md) §2 |
 | `_history/` | 两个一次性历史脚本（`patch_uvproj_fo.py`、`try_fo15.py`），是当初定位 `-FO7`→`-FO15` 那个坑用的；功能已被 `prep_project.py` 覆盖，留着备查 |
 
 > ⚠️ **要拷到工程目录的只有 `flash_and_run.bat` 这一个文件。** 别把 `.ps1` / `.py` 一起拖过去——
