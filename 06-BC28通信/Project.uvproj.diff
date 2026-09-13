@@ -1,0 +1,23 @@
+--- Project.uvproj.orig	2026-09-13 23:19:56.532499300 +0800
++++ Project.uvproj	2026-09-13 23:19:56.563613500 +0800
+@@ -375,7 +375,7 @@
+               <MiscControls></MiscControls>
+               <Define>USE_STDPERIPH_DRIVER, STM32L1XX_MD, USE_STM32L152_EVAL</Define>
+               <Undefine></Undefine>
+-              <IncludePath>..\;..\..\..\Libraries\CMSIS\Device\ST\STM32L1xx\Include;..\..\..\Libraries\STM32L1xx_StdPeriph_Driver\inc;..\..\HARDWARE\usart;..\..\HARDWARE\LED;..\..\..\Libraries\CMSIS\Include</IncludePath>
++              <IncludePath>..\;..\..\..\Libraries\CMSIS\Device\ST\STM32L1xx\Include;..\..\..\Libraries\STM32L1xx_StdPeriph_Driver\inc;..\..\HARDWARE\usart;..\..\HARDWARE\LED;..\..\HARDWARE\bc28;..\..\..\Libraries\CMSIS\Include</IncludePath>
+             </VariousControls>
+           </Cads>
+           <Aads>
+@@ -783,6 +783,11 @@
+               <FileType>1</FileType>
+               <FilePath>..\..\HARDWARE\LED\LED.c</FilePath>
+             </File>
++            <File>
++              <FileName>bc28.c</FileName>
++              <FileType>1</FileType>
++              <FilePath>..\..\HARDWARE\bc28\bc28.c</FilePath>
++            </File>
+           </Files>
+         </Group>
+       </Groups>

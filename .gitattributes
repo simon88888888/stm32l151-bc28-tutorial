@@ -1,0 +1,6 @@
+# 这几类文件**必须**是 LF，否则在 Linux 上直接用不了：
+#   *.sh  —— 行尾带 \r 会让 `#!/bin/sh\r` 变成 "sh^M: not found"
+#   *.py  —— 一般能跑，但混着 CRLF 的 heredoc / 正则容易出怪问题
+# 其余文件（.c/.h/.md）不强制，跟着各人本地的 autocrlf 走就行。
+*.sh    text eol=lf
+*.py    text eol=lf
