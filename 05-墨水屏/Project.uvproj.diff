@@ -1,0 +1,50 @@
+--- Project.uvproj.orig	2026-09-13 09:13:44.817774700 +0800
++++ Project.uvproj	2026-09-13 09:13:44.847785500 +0800
+@@ -794,9 +794,9 @@
+               <FilePath>..\..\HARDWARE\LED\LED.c</FilePath>
+             </File>
+             <File>
+-              <FileName>smp.c</FileName>
++              <FileName>eink.c</FileName>
+               <FileType>1</FileType>
+-              <FilePath>..\..\HARDWARE\eink\smp.c</FilePath>
++              <FilePath>..\..\HARDWARE\eink\eink.c</FilePath>
+             </File>
+             <File>
+               <FileName>systempz.c</FileName>
+@@ -1594,9 +1594,9 @@
+               <FilePath>..\..\HARDWARE\LED\LED.c</FilePath>
+             </File>
+             <File>
+-              <FileName>smp.c</FileName>
++              <FileName>eink.c</FileName>
+               <FileType>1</FileType>
+-              <FilePath>..\..\HARDWARE\eink\smp.c</FilePath>
++              <FilePath>..\..\HARDWARE\eink\eink.c</FilePath>
+             </File>
+             <File>
+               <FileName>systempz.c</FileName>
+@@ -2394,9 +2394,9 @@
+               <FilePath>..\..\HARDWARE\LED\LED.c</FilePath>
+             </File>
+             <File>
+-              <FileName>smp.c</FileName>
++              <FileName>eink.c</FileName>
+               <FileType>1</FileType>
+-              <FilePath>..\..\HARDWARE\eink\smp.c</FilePath>
++              <FilePath>..\..\HARDWARE\eink\eink.c</FilePath>
+             </File>
+             <File>
+               <FileName>systempz.c</FileName>
+@@ -3194,9 +3194,9 @@
+               <FilePath>..\..\HARDWARE\LED\LED.c</FilePath>
+             </File>
+             <File>
+-              <FileName>smp.c</FileName>
++              <FileName>eink.c</FileName>
+               <FileType>1</FileType>
+-              <FilePath>..\..\HARDWARE\eink\smp.c</FilePath>
++              <FilePath>..\..\HARDWARE\eink\eink.c</FilePath>
+             </File>
+             <File>
+               <FileName>systempz.c</FileName>

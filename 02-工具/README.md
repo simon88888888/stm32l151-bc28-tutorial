@@ -129,6 +129,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<本目录>\flash_and_run.p
 | `prep_project.py` | 修厂家例程工程的**三处缺陷**，见下 |
 | `inspect_proj.py` | **体检工具**（只报告、不改）：列出一个工程的 target / IncludePath / `-FP0` / `-FO` 现状。动手修之前先看它 |
 | `at_console.py` | **敲 AT 指令**（第 2 篇用的）：自动找 CH340 那个 COM 口，把指令发给 BC28 并**原样**显示回显。**要先烧好透传固件**，否则模块根本收不到 —— 见 [第 2 篇](../第2篇-BC28联网与AT指令实测.md) §2 |
+| `gen_font5x7.py` | **生成点阵字库**（第 4 篇用的）：字模在脚本里用 `#`/`.` 画出来，生成时**把每个字打印到终端给你肉眼验**，再输出 C 数组。厂家 `Font.h` 那张 `F8X16` 的位序反推不出来，所以当时没赌它、自己造了一张 —— 见 [第 4 篇](../第4篇-墨水屏点亮与显示实测.md) §5.3。想改字模或扩字符集直接改脚本里的 `GLYPHS` |
 | `_history/` | 两个一次性历史脚本（`patch_uvproj_fo.py`、`try_fo15.py`），是当初定位 `-FO7`→`-FO15` 那个坑用的；功能已被 `prep_project.py` 覆盖，留着备查 |
 
 > ⚠️ **要拷到工程目录的只有 `flash_and_run.bat` 这一个文件。** 别把 `.ps1` / `.py` 一起拖过去——
