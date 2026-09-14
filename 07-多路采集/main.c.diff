@@ -1,0 +1,347 @@
+diff --git a/bc28-socket/Project/Test/main.c b/bc28-socket/Project/Test/main.c
+index 777c5fb..7d8c948 100644
+--- a/bc28-socket/Project/Test/main.c
++++ b/bc28-socket/Project/Test/main.c
+@@ -9,10 +9,11 @@
+   *    第 2 篇是**人在 PC 上敲 AT**, 证明"这条链路能通";
+   *    这一篇把那个过程**搬进固件**, 让它自己跑 —— 不用 PC, 也不用有人看着。
+   *
+-  *  三个开关, 改完重编译重烧:
++  *  四个开关, 改完重编译重烧:
+   *    MODE_LONG            1 = 长连接(默认) / 0 = 每轮重连, 用来量建连耗时
+   *    BC28_SKIP_NSOCO_URC  在 bc28.h, =1 就是复现厂家那种"不等 URC 就发"
+   *    REPORT_MS            上报间隔
++  *    DHT11_SELFTEST       1 = 开机先连读 10 次温湿度(调传感器用) / 0 = 关
+   *
+   *  串口: USART1 -> CH340 -> 电脑, 9600 8-N-1, 流控无
+   *        (第 1 篇那套 flash_and_run.ps1 / read_com.ps1 直接就能看)
+@@ -40,6 +41,7 @@
+ #include "usart.h"
+ #include "led.h"
+ #include "bc28.h"
++#include "dht11.h"
+ #include <stdio.h>
+ #include <string.h>
+ 
+@@ -67,9 +69,19 @@
+ #define SINK_TOKEN      "put-your-own-token-here"
+ 
+ /* ---- 开关 -----------------------------------------------------------------*/
+-#define MODE_LONG       1               /* 1 = 长连接(推荐); 0 = 每轮建连->发->收->关 */
++/* 2026-09-14 实测: 当前这条 NB-IoT 路径上, 长连接**只过得去 1 条**就静默失效 ——
++   服务端 ss 查不到这条连接、模块却继续对 AT+NSOSD 回 OK, 板子一直发、一直收不到应答;
++   换成第 3 篇那版固件(不含 DHT11)复现完全一样, 所以跟传感器无关。
++   短连接同一晚实测 43/43 全中。先把第 5 篇跑通, 长连接的自动重连单独做一次改动。 */
++#define MODE_LONG       0               /* 1 = 长连接(推荐); 0 = 每轮建连->发->收->关 */
+ #define REPORT_MS       30000UL         /* 上报间隔 */
+ 
++/* 开机先连读 10 次温湿度, 专门用来**调传感器**。
++   调的时候把它开成 1: 读 10 次、每次隔 2 秒 = 20 秒, 正好一次
++   read_com.ps1 -Seconds 25 的量 —— 一次烧录换 20 个数据点, 省掉反复烧写。
++   调通了改成 0 重烧, 温湿度就并进每 30 秒那条上报里。 */
++#define DHT11_SELFTEST  0
++
+ #if MODE_LONG
+ #define MODE_NAME       "long"
+ #else
+@@ -84,6 +96,15 @@ static uint32_t seq;            /* 上报序号, 从 1 开始 */
+ static uint32_t rx_ok;          /* 服务器回了 OK 的次数 */
+ static uint32_t rx_lost;        /* 发出去了但没等到 OK 的次数 */
+ 
++/* 温湿度。**必须 static** —— 本工程 Stack_Size 只有 0x400 = 1KB,
++   DHT11_DATA 里光实测量就有十几个 uint16, 放栈上不合适。
++   而且它是**上一轮**的读数, 天生就该是跨函数存在的状态。 */
++static DHT11_DATA dht;          /* 最近一次读数(失败时里面的实测量仍然有效) */
++static uint32_t   dht_ms;       /* 上次读的时刻, 用来限流 */
++static int        dht_rc;       /* 最近一次读的返回值 */
++
++static uint32_t   conn_fail;    /* 连续建连失败了几次 —— 到阈值就重启模块 */
++
+ #if !MODE_LONG
+ /* 短连接模式的建连耗时统计(长连接那一档用不到, 不声明就不会有 unused 警告) */
+ static uint32_t conn_n, conn_min, conn_max, conn_sum;
+@@ -95,9 +116,12 @@ void TimingDelay_Decrement(void);
+ 
+ static int  put_tenth(char *p, int v);
+ static void trim(char *s);
++static void dht_temp_str(char *out, const DHT11_DATA *d);
+ static int  wait_reply(int s, char *out, uint16_t cap, int rounds);
+ static int  link_up(void);
+ static void report_once(void);
++static int  hard_recover(void);
++static void connect_failed(uint32_t wait_ms);
+ 
+ /**
+   * @brief  把一个"单位 0.1"的整数打成人看的样子: -683 -> "-68.3", 64 -> "6.4"。
+@@ -127,6 +151,29 @@ static void trim(char *s)
+     }
+ }
+ 
++/**
++  * @brief  把 DHT11 的温度打成人看的样子: "24.0" / "-5.0"。
++  *
++  *         ⚠ DHT11 温度**整数部分的最高位是符号位**(负温时置 1), 不是无符号数。
++  *           直接按无符号打的话, -5 度会变成 251 度 —— 数据手册第 6 页那张
++  *           位定义表里写了, 但很容易漏掉。湿度那两字节没有符号位, 不用管。
++  *
++  *         小数部分 DHT11 恒为 0(它的分辨率就是 1 度), 留着是为了跟
++  *         DHT22 的格式对齐 —— 以后换传感器上层不用改。
++  */
++static void dht_temp_str(char *out, const DHT11_DATA *d)
++{
++    int t   = (int)d->temp;
++    int neg = 0;
++
++    if ((t & 0x80) != 0)
++    {
++        neg = 1;
++        t  &= 0x7F;
++    }
++    sprintf(out, "%s%d.%d", (neg != 0) ? "-" : "", t, (int)d->temp_dec);
++}
++
+ /**
+   * @brief  看着像 IPv4 吗?  "203.0.113.7" 是, "your-server.example.com" 不是。
+   *         只判形状(四段十进制数), **不校验数值范围** —— 够用, 也省得引 inet_aton
+@@ -234,6 +281,53 @@ static int wait_reply(int s, char *out, uint16_t cap, int rounds)
+     return 0;
+ }
+ 
++/**
++  * @brief  最后一招: 让 BC28 整个重启, 然后等它重新注网。
++  *
++  *  为什么值得下这么重的手 —— 2026-09-14 实测: 模块的 socket 层会自己卡死,
++  *  卡死时 AT+NSOCR 直接回 ERROR, 而**同一时刻 CSQ=25 / RSRP=-73**, 无线好得很。
++  *  也就是说单看信号永远查不出来, AT 层的其它补救(NSOCL 等)也全被拒 ——
++  *  只有 NRB 能把它救回来。详见 bc28.c 里 BC28_Reset() 的文件头注释。
++  *
++  *  返回 0 = 救回来了, < 0 = 重启了还是没注上网。
++  */
++static int hard_recover(void)
++{
++    printf("! %lu connects in a row failed -- module socket layer looks wedged\r\n",
++           (unsigned long)conn_fail);
++    printf("! rebooting BC28 (AT+NRB), this takes ~15 s ...\r\n");
++
++    conn_fail = 0;
++    BC28_Reset();
++
++    if (BC28_WaitNet(60000) != 0)
++    {
++        printf("! rebooted but still not attached\r\n");
++        return -1;
++    }
++
++    printf("+ BC28 rebooted and attached again\r\n");
++    return 0;
++}
++
++/**
++  * @brief  建连失败的统一出口: 记账、必要时重启模块、然后等一会儿。
++  *         两个模式(MODE_LONG)都走这里, 免得同一套逻辑写两遍。
++  */
++static void connect_failed(uint32_t wait_ms)
++{
++    conn_fail++;
++    printf("- connect failed (%lu in a row), retry in %lu ms\r\n",
++           (unsigned long)conn_fail, (unsigned long)wait_ms);
++
++    if (conn_fail >= 5)
++    {
++        (void)hard_recover();
++    }
++
++    BC28_Idle(wait_ms);
++}
++
+ /**
+   * @brief  建一条到服务器的连接, 并把 token 交上去。
+   *         返回 socket 号(>= 0), 或负错误码。
+@@ -310,18 +404,41 @@ static int link_up(void)
+ 
+ /**
+   * @brief  发一条上报, 并读服务端的应答。
+-  *         一行的样子: #12,CSQ=28,RSRP=-68.3,SNR=6.4,ECL=0,UP=360
++  *         一行的样子: #12,CSQ=28,RSRP=-68.3,SNR=6.4,ECL=0,UP=360,T=26.9
++  *
++  *         ⚠ **只发温度, 不发湿度。** 手上这颗传感器的湿度通道**恒为 0**,
++  *         而校验和每次都是对的 —— 也就是"不是读错位, 是它真在发 0"
++  *         (详见下面自检那一段的注释)。房间里不可能有 0%RH, 所以那一栏发出去
++  *         就是往服务端灌假数据, 不如不发。以后换一颗好的(或 DHT22),
++  *         把 `,H=` 加回来就行。
++  *
++  *         温度读失败时发 -99.0 并补一个 DHTE=<错误码> —— **保持字段形状
++  *         不变**。服务端是按逗号切、按 `=` 取值的, 少一栏或者变个形状都会
++  *         让它解析出错; 而"这天传感器坏了"本身也是值得记下来的数据,
++  *         不该让整条上报发不出去。
+   */
+ static void report_once(void)
+ {
+     BC28_RADIO r;
+     char       body[128];
+     char       buf[64];
++    char       ts[16];
+     char      *p;
+     int        rc;
+     int        n;
+     int        i;
+ 
++    /* ---- 温湿度 ----
++       限流到 DHT11_MIN_PERIOD_MS: 一来手册要求采样间隔 >= 1 秒(敏感元件
++       要缓过来, 连着读只会拿到同一个数), 二来读一次要**阻塞 20ms**。
++       现在上报是 30 秒一轮, 所以实际上每轮都读; 这个判断是防以后把
++       上报间隔调小的 —— 那时候它会自己变成"每 2 秒才读一次"。 */
++    if ((uint32_t)(BC28_Millis() - dht_ms) >= DHT11_MIN_PERIOD_MS)
++    {
++        dht_rc = DHT11_Read(&dht);
++        dht_ms = BC28_Millis();
++    }
++
+     memset(&r, 0, sizeof(r));
+     if (BC28_GetRadio(&r) < 0)
+     {
+@@ -336,6 +453,17 @@ static void report_once(void)
+     p += put_tenth(p, r.snr);
+     p += sprintf(p, ",ECL=%d,UP=%lu", r.ecl,
+                  (unsigned long)(BC28_Millis() / 1000));
++
++    if (dht_rc == 0)
++    {
++        dht_temp_str(ts, &dht);
++        p += sprintf(p, ",T=%s", ts);
++    }
++    else
++    {
++        p += sprintf(p, ",T=-99.0,DHTE=%d", dht_rc);
++    }
++
+     p += sprintf(p, "\r\n");            /* 行尾换行, 理由见 link_up() 里那段注释 */
+ 
+     rc = BC28_Send(sock, body, (uint16_t)strlen(body));
+@@ -400,6 +528,8 @@ int main(void)
+                            漏了这一句的现象很典型: 烧录成功、板子在跑, 但串口
+                            一个字都没有 —— 因为 USART1 的时钟和引脚都还没配。 */
+     BC28_Init();        /* 里面会 uart2_init(9600) */
++    DHT11_Init();       /* PB8 开漏 + TIM6 微秒时基。放在 uart1_init 之后,
++                           这样它要是哪天会打印, 日志也出得来 */
+ 
+     printf("\r\n\r\n");
+     printf("### Part 3: uplink to my own server ###\r\n");
+@@ -437,6 +567,91 @@ int main(void)
+         }
+     }
+ 
++#if DHT11_SELFTEST
++    /* ---- ⓪.5 温湿度自检 ----
++       放在模块探测**之前**: 能不能读 DHT11 跟 NB-IoT 链路毫无关系,
++       先把它调通, 后面万一出问题就不用怀疑这一侧。
++
++       跑 10 次、每次隔 2 秒(DHT11 的采样间隔下限) = 20 秒, 正好一次
++       read_com.ps1 -Seconds 25 的量 —— **一次烧录换 20 个数据点**,
++       调硬件的时候这个很省事, 不然就是改一次烧一次。
++
++       ⚠ 用**有限次**循环而不是 for(;;): 后面还有 BC28_Idle 那一句,
++         写成 for(;;) 会让它变成不可达代码, AC5 报 #111-D 警告,
++         而本工程要求 0 Warning。
++
++       两行输出里的第二行(实测量)才是这一节的重点 —— 见 dht11.h 里那段:
++       DHT11 的 0 和 1 只差在高电平宽度, 把 hi0<= / hi1>= 打出来就知道
++       门槛 50us 两边各有多少余量。接错线的时候也是靠这几个数一眼看出来
++       "时序根本不对", 而不是傻猜"传感器是不是坏了"。
++
++       ---- 手上这颗传感器实测出来的两件事(第 5 篇要写进去) ----
++
++       1) **它的温度是 0.1 分辨率, 所以它不是纯 DHT11。** 真 DHT11 的温度
++          分辨率是 1 摄氏度, 小数那两个字节恒为 0。这颗给的 raw 是
++          `1A 09` -> `1B 00` -> `1B 01` ... 也就是 26.9 -> 27.0 -> 27.1,
++          中间那一步是**进位**(小数从 9 滚到 0, 整数 +1)。协议一样但分辨率
++          不一样, 说明它是 DHT12 或同协议的克隆片。**驱动不用改** ——
++          dht11.c 本来就把 4 个字节都收全了, 小数位照收(from day one)。
++
++       2) **它的湿度通道恒为 0, 但校验和是对的。** raw 的前两个字节每次都是
++          `00 00`, 而第 5 个字节仍然等于前 4 个之和 —— 40 位里错一位还能撞对
++          校验和的概率是 1/256, 连中 10 次不可能。所以结论只能是一个:
++          **不是读错了, 是它真在发 0**。房间里不可能有 0%RH(传感器量程下限
++          本身就是 20%), 所以这一栏是坏的, 上报里干脆不发 `,H=`。
++          —— 这一条本身就是个挺好的教训: **校验和通过 != 数据有意义**,
++             dht11.c 里那道 E_RANGE 量程检查就是为这类"看着合法其实全错"
++             准备的(只是它拦的是超量程, 拦不住"合法的 0")。 */
++    {
++        char ts[16];
++        int  k;
++
++        printf("\r\n--- DHT11 self-test: 10 reads, 2 s apart ---\r\n");
++        for (k = 1; k <= 10; k++)
++        {
++            dht_rc = DHT11_Read(&dht);
++            dht_ms = BC28_Millis();
++
++            if (dht_rc == 0)
++            {
++                dht_temp_str(ts, &dht);
++                printf("+ [%d/10] T=%sC   raw=%02X %02X %02X %02X %02X\r\n",
++                       k, ts,
++                       (unsigned)dht.raw[0], (unsigned)dht.raw[1],
++                       (unsigned)dht.raw[2], (unsigned)dht.raw[3],
++                       (unsigned)dht.raw[4]);
++            }
++            else
++            {
++                printf("- [%d/10] FAIL (%d): %s\r\n", k, dht_rc, DHT11_Why(dht_rc));
++                if (dht_rc == DHT11_E_NORESP)
++                {
++                    printf("          check: sensor powered? data wire on B8");
++                    printf(" (the middle pin)? module pin order right?\r\n");
++                }
++                else if (dht_rc == DHT11_E_STUCK)
++                {
++                    printf("          check: line shorted to GND? module's own");
++                    printf(" pull-up powered? (this board has none)\r\n");
++                }
++            }
++
++            /* 这一行**成功失败都打** —— 失败时它才是唯一线索。 */
++            printf("          start=%u resp=%u/%u hi0<=%u hi1>=%u lo<=%u frame=%u\r\n",
++                   (unsigned)dht.start_us, (unsigned)dht.resp_low,
++                   (unsigned)dht.resp_high, (unsigned)dht.hi0_max,
++                   (unsigned)dht.hi1_min, (unsigned)dht.lo_max,
++                   (unsigned)dht.frame_us);
++
++            if (k < 10)
++            {
++                BC28_Idle(DHT11_MIN_PERIOD_MS);     /* 一边等一边收 URC */
++            }
++        }
++        printf("--- DHT11 self-test done ---\r\n\r\n");
++    }
++#endif
++
+     /* ---- ① 模块在不在 ----
+        别指望第一枪就中: 模块平时在 PSM/eDRX 里睡着(第 2 篇查过, 出厂就开着),
+        睡着的模块被 UART 上第一个字符叫醒, 而**那个字符自己常常是丢的**。
+@@ -525,10 +740,10 @@ int main(void)
+             sock = link_up();
+             if (sock < 0)
+             {
+-                printf("- connect failed, retry in 5 s\r\n");
+-                BC28_Idle(5000);
++                connect_failed(5000);
+                 continue;
+             }
++            conn_fail = 0;
+             GPIO_SetBits(GPIOC, GPIO_Pin_3);        /* 板上那颗灯 = 连着 */
+         }
+ 
+@@ -541,10 +756,10 @@ int main(void)
+ 
+             if (s2 < 0)
+             {
+-                printf("- connect failed, retry in 3 s\r\n");
+-                BC28_Idle(3000);
++                connect_failed(3000);
+                 continue;
+             }
++            conn_fail = 0;
+             sock = s2;
+             GPIO_SetBits(GPIOC, GPIO_Pin_3);
+ 

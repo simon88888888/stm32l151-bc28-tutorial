@@ -8,7 +8,7 @@
     SINK_TOKEN   必填。模块每条连接的第一行必须发 `#TOKEN <它>`，不匹配就丢弃。
                  **没设就直接拒绝启动** —— 免得无意中把一个无鉴权的公网端口跑起来。
     SINK_PORT    默认 9101（避开本机已占的 80/443/7000/8080/8081/8188/8189/8191）
-    SINK_LOGDIR  默认是 sink.py 同级的 logs/ 目录
+    SINK_LOGDIR  默认 /opt/nbiot-sink/logs
 
 协议（一行一条，`\\r\\n` 结尾）:
     → #TOKEN <串>        握手，服务端回 `AUTH OK`
@@ -28,6 +28,7 @@
 
 import os
 import re
+import sqlite3
 import sys
 import threading
 from datetime import datetime, timedelta, timezone
@@ -36,14 +37,86 @@ from socketserver import StreamRequestHandler, ThreadingTCPServer
 TZ = timezone(timedelta(hours=8))  # 固定 UTC+8：跟板子上的 uptime、你的墙上钟对得上
 
 PORT = int(os.environ.get("SINK_PORT", "9101"))
-LOGDIR = os.environ.get("SINK_LOGDIR",
-                 os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs"))
+LOGDIR = os.environ.get("SINK_LOGDIR", "/opt/nbiot-sink/logs")
 TOKEN = os.environ.get("SINK_TOKEN", "").strip()
 
 LOG_FILE = os.path.join(LOGDIR, "sink.log")
 
 _lock = threading.Lock()
 _rx = 0
+
+
+# ---- 结构化落盘（第 5 篇的云端看板要查历史）--------------------------------
+# sink 原本只写纯文本 sink.log：人看得舒服、grep 得动，但**没法查历史**。
+# 这里在文本日志之外再落一份 SQLite，一行 RX 一条记录，看板直接查它。
+#
+# ★ 日志仍然是唯一真相：DB 写失败只在 stderr 留一行，绝不影响收数、更不会断连接。
+DB_FILE = os.environ.get("SINK_DB", "/opt/nbiot-sink/data/history.db")
+
+# 板子报文形如:  #12,CSQ=28,RSRP=-69.1,SNR=13.6,ECL=0,UP=158,T=26.8
+# 逐字段取值, **不按位置切** —— 老固件少发 T= 的那几条也能照样存下来(存成 NULL)。
+RE_SEQ = re.compile(r"#(\d+)")
+RE_KV = re.compile(r"([A-Z]+)=(-?\d+(?:\.\d+)?)")
+
+
+def db_init():
+    os.makedirs(os.path.dirname(DB_FILE), exist_ok=True)
+    c = sqlite3.connect(DB_FILE, timeout=5)
+    try:
+        with c:
+            c.execute("PRAGMA journal_mode=WAL")   # 看板在读的同时还能继续写
+            c.execute("""CREATE TABLE IF NOT EXISTS rx(
+                           id INTEGER PRIMARY KEY AUTOINCREMENT,
+                           ts TEXT, epoch REAL, peer TEXT, seq INTEGER,
+                           csq INTEGER, rsrp REAL, snr REAL, ecl INTEGER,
+                           up INTEGER, temp REAL, raw TEXT)""")
+            c.execute("""CREATE TABLE IF NOT EXISTS conn(
+                           id INTEGER PRIMARY KEY AUTOINCREMENT,
+                           ts TEXT, epoch REAL, peer TEXT, kind TEXT)""")
+            c.execute("CREATE INDEX IF NOT EXISTS ix_rx_epoch ON rx(epoch)")
+    finally:
+        c.close()
+
+
+def _db_write(sql, args):
+    """每次开一条新连接写完就关。一分钟才两三条，开销可以忽略，
+    换来的是**没有跨线程共享的连接对象** —— ThreadingTCPServer 是多线程的，
+    共享 sqlite3 连接默认不能跨线程用。"""
+    try:
+        c = sqlite3.connect(DB_FILE, timeout=5)
+        try:
+            with c:
+                c.execute(sql, args)
+        finally:
+            c.close()
+    except Exception as exc:
+        print("!! 写 DB 失败: %s" % exc, file=sys.stderr, flush=True)
+
+
+def db_conn(peer, kind):
+    """记一次模块建连（AUTH 成功 / REJECT 被拒）—— 看板的"累计建连次数"。"""
+    now = datetime.now(TZ)
+    _db_write("INSERT INTO conn(ts, epoch, peer, kind) VALUES(?,?,?,?)",
+              (now.strftime("%Y-%m-%d %H:%M:%S"), now.timestamp(), peer, kind))
+
+
+def db_rx(peer, text):
+    now = datetime.now(TZ)
+    kv = dict(RE_KV.findall(text))
+    m = RE_SEQ.search(text)
+
+    def num(key, cast):
+        try:
+            return cast(kv[key])
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    _db_write("INSERT INTO rx(ts, epoch, peer, seq, csq, rsrp, snr, ecl, up, temp, raw)"
+              " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+              (now.strftime("%Y-%m-%d %H:%M:%S"), now.timestamp(), peer,
+               int(m.group(1)) if m else None,
+               num("CSQ", int), num("RSRP", float), num("SNR", float), num("ECL", int),
+               num("UP", int), num("T", float), text[:200]))
 
 
 def log(kind, peer, text):
@@ -85,13 +158,16 @@ class Handler(StreamRequestHandler):
                     m = re.match(r"^#TOKEN\s+(\S+)$", text)
                     if not m or m.group(1) != TOKEN:
                         log("REJECT", peer, text[:80])
+                        db_conn(peer, "REJECT")
                         break
                     authed = True
                     log("AUTH", peer, "token ok")
+                    db_conn(peer, "AUTH")
                     self.wfile.write(b"AUTH OK\n")
                     continue
 
                 log("RX", peer, text)
+                db_rx(peer, text)
                 self.wfile.write(("OK %d\n" % bump()).encode())
         except (TimeoutError, ConnectionResetError, BrokenPipeError, OSError):
             pass  # 模块睡下去/被运营商掐掉，都是常态，不值得刷错误
@@ -142,6 +218,7 @@ def main():
         sys.exit("拒绝启动: 没设 SINK_TOKEN。公网端口必须有鉴权，"
                  "例如  SINK_TOKEN=$(openssl rand -hex 16) python3 sink.py")
     os.makedirs(LOGDIR, exist_ok=True)
+    db_init()
     log("INFO", "-", "监听 0.0.0.0:%d，日志 %s" % (PORT, LOG_FILE))
     Server(("0.0.0.0", PORT), Handler).serve_forever()
 

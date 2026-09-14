@@ -1,0 +1,25 @@
+diff --git a/bc28-socket/Project/Test/MDK-ARM/Project.uvproj b/bc28-socket/Project/Test/MDK-ARM/Project.uvproj
+index c6823e2..30df105 100644
+--- a/bc28-socket/Project/Test/MDK-ARM/Project.uvproj
++++ b/bc28-socket/Project/Test/MDK-ARM/Project.uvproj
+@@ -375,7 +375,7 @@
+               <MiscControls></MiscControls>
+               <Define>USE_STDPERIPH_DRIVER, STM32L1XX_MD, USE_STM32L152_EVAL</Define>
+               <Undefine></Undefine>
+-              <IncludePath>..\;..\..\..\Libraries\CMSIS\Device\ST\STM32L1xx\Include;..\..\..\Libraries\STM32L1xx_StdPeriph_Driver\inc;..\..\HARDWARE\usart;..\..\HARDWARE\LED;..\..\HARDWARE\bc28;..\..\..\Libraries\CMSIS\Include</IncludePath>
++              <IncludePath>..\;..\..\..\Libraries\CMSIS\Device\ST\STM32L1xx\Include;..\..\..\Libraries\STM32L1xx_StdPeriph_Driver\inc;..\..\HARDWARE\usart;..\..\HARDWARE\LED;..\..\HARDWARE\bc28;..\..\HARDWARE\dht11;..\..\..\Libraries\CMSIS\Include</IncludePath>
+             </VariousControls>
+           </Cads>
+           <Aads>
+@@ -788,6 +788,11 @@
+               <FileType>1</FileType>
+               <FilePath>..\..\HARDWARE\bc28\bc28.c</FilePath>
+             </File>
++            <File>
++              <FileName>dht11.c</FileName>
++              <FileType>1</FileType>
++              <FilePath>..\..\HARDWARE\dht11\dht11.c</FilePath>
++            </File>
+           </Files>
+         </Group>
+       </Groups>

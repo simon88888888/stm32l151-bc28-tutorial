@@ -1,0 +1,56 @@
+diff --git a/bc28-socket/Project/HARDWARE/bc28/bc28.c b/bc28-socket/Project/HARDWARE/bc28/bc28.c
+index e4b77e3..aaae9f0 100644
+--- a/bc28-socket/Project/HARDWARE/bc28/bc28.c
++++ b/bc28-socket/Project/HARDWARE/bc28/bc28.c
+@@ -522,6 +522,38 @@ static int hexval(char c)
+  * 五、对外的接口
+  * ========================================================================= */
+ 
++/**
++  * @brief  让模块整个重启一次, 拿一个干净状态。
++  *
++  *  AT+NRB **不回普通响应**: 它先回一个 OK, 然后模块自己断电重来, 起来时吐
++  *  一条 "RDY"。所以要等两次、而且等得久(实测 ~10 秒)。
++  *
++  *  ★ 为什么非要有它 —— 这是 2026-09-14 晚上实测出来的一个大坑:
++  *    模块的 socket 层会**自己卡死**。卡死之后:
++  *        AT+NSOCR=STREAM,6,0,1   ->  ERROR   (6 个 socket 全占着, 一个都分不出来)
++  *        AT+NSOCL=<n>            ->  关不掉  (所以服务端那头永远收不到 FIN,
++  *                                             连接会一直挂到 600 秒超时才被收走)
++  *    而**同一时刻 CSQ=25 / RSRP=-73** —— 无线完全正常, 板子串口还在每 3 秒
++  *    重试一次。也就是说 AT 层任何补救都没用, 只能让它重启。
++  *
++  *    更要命的是: **MCU 复位不会复位模块**(是两套独立的复位), 所以这个卡死
++  *    状态会跨烧录、跨复位键一直留着 —— 表现出来就是"换了固件也一样坏",
++  *    非常容易误判成代码问题(我们就是这么误判过一轮的)。
++  */
++void BC28_Reset(void)
++{
++    char tmp[32];
++
++    rx_drop_all();
++
++    /* 模块要是本来就在重启, 这句收不到 OK, 无所谓 —— 下面照样等 RDY */
++    (void)at_cmd("AT+NRB", "OK", BC28_TO_LONG, NULL, 0);
++
++    (void)wait_for("RDY", 30000, tmp, sizeof(tmp));
++    BC28_Idle(1000);            /* 起来之后还得喘一口, 立刻发 AT 会丢 */
++    rx_drop_all();
++}
++
+ /**
+   * @brief  初始化: 串口 + 时基 + **关掉 USART2 的 RXNE 中断**。
+   */
+@@ -544,6 +576,12 @@ void BC28_Init(void)
+     rx_ovf      = 0;
+     sock_closed = 0;
+ 
++    /* 开机先把模块重启一次。
++       一开始这里写的是"无脑 AT+NSOCL=0..5 关一遍", 实测**不够** ——
++       模块卡死的时候 NSOCL 本身就被拒, 关不动。只有 NRB 能救。
++       代价是每次开机多等十几秒重新注网, 换来的是"模块一定从干净状态开始"。 */
++    BC28_Reset();
++
+     (void)BC28_Millis();        /* 把 ms_last 对齐到当前 CNT */
+ }
+ 

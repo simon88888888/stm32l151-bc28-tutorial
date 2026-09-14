@@ -1,0 +1,14 @@
+diff --git a/bc28-socket/Project/HARDWARE/bc28/bc28.h b/bc28-socket/Project/HARDWARE/bc28/bc28.h
+index 703e923..f8bec0a 100644
+--- a/bc28-socket/Project/HARDWARE/bc28/bc28.h
++++ b/bc28-socket/Project/HARDWARE/bc28/bc28.h
+@@ -80,7 +80,8 @@ typedef struct
+ } BC28_RADIO;
+ 
+ /* ---- 底层 --------------------------------------------------------------- */
+-void     BC28_Init(void);              /* USART2 + 时基 + 关掉 RXNE 中断 */
++void     BC28_Init(void);              /* USART2 + 时基 + 关掉 RXNE 中断 + 重启模块 */
++void     BC28_Reset(void);             /* AT+NRB 让模块整个重启(救 socket 卡死) */
+ void     BC28_Idle(uint32_t ms);       /* 空转 ms 毫秒, 一边收一边走时钟 */
+ uint32_t BC28_Millis(void);            /* 精确毫秒时基, 不丢 tick */
+ 
