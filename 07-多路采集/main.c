@@ -686,12 +686,33 @@ int main(void)
     }
 
     /* ---- ② 注网 ---- */
-    printf("+ waiting for network (AT+CEREG?) ...\r\n");
-    rc = BC28_WaitNet(BC28_TO_NET);
-    if (rc < 0)
+    /* 2026-09-15 改: 这里以前是 `while(1) { BC28_Idle(500); }` —— 开机注网一旦超时,
+       就永久静默死等, 串口不出声、看板没数据、AT 也不回, **看起来跟板子坏了一模一样**,
+       而且断电重开还是这样(开机 BC28_Init 会 AT+NRB 重启模块, 每次都得重新注网)。
+       实测代价: 用户以为板子坏了, 查了一晚上。
+       现在改成一直重试: 超时就把模块 AT+NRB 重启再来一轮。
+       板子宁可慢一点起来, 也绝不出这种"安静地死掉"的状态。
+       注: 主循环里早就有同一套重试(connect_failed -> hard_recover), 只有启动这条路漏了。 */
     {
-        printf("! network attach timeout: %s\r\n", BC28_Why(rc));
-        while (1) { BC28_Idle(500); }
+        uint32_t round = 0;
+
+        for (;;)
+        {
+            round++;
+            printf("+ waiting for network (AT+CEREG?) ... round %lu\r\n",
+                   (unsigned long)round);
+
+            rc = BC28_WaitNet(BC28_TO_NET);
+            if (rc == 0)
+            {
+                break;
+            }
+
+            printf("! network attach timeout: %s\r\n", BC28_Why(rc));
+            printf("! rebooting BC28 (AT+NRB) and trying again ...\r\n");
+            BC28_Reset();
+            BC28_Idle(1000);
+        }
     }
     printf("+ attached (CEREG = 1 or 5)\r\n");
 

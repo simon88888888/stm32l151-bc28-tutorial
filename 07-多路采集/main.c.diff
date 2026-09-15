@@ -1,5 +1,5 @@
 diff --git a/bc28-socket/Project/Test/main.c b/bc28-socket/Project/Test/main.c
-index 777c5fb..7d8c948 100644
+index 777c5fb..8d75843 100644
 --- a/bc28-socket/Project/Test/main.c
 +++ b/bc28-socket/Project/Test/main.c
 @@ -9,10 +9,11 @@
@@ -319,7 +319,46 @@ index 777c5fb..7d8c948 100644
      /* ---- ① 模块在不在 ----
         别指望第一枪就中: 模块平时在 PSM/eDRX 里睡着(第 2 篇查过, 出厂就开着),
         睡着的模块被 UART 上第一个字符叫醒, 而**那个字符自己常常是丢的**。
-@@ -525,10 +740,10 @@ int main(void)
+@@ -471,12 +686,33 @@ int main(void)
+     }
+ 
+     /* ---- ② 注网 ---- */
+-    printf("+ waiting for network (AT+CEREG?) ...\r\n");
+-    rc = BC28_WaitNet(BC28_TO_NET);
+-    if (rc < 0)
++    /* 2026-09-15 改: 这里以前是 `while(1) { BC28_Idle(500); }` —— 开机注网一旦超时,
++       就永久静默死等, 串口不出声、看板没数据、AT 也不回, **看起来跟板子坏了一模一样**,
++       而且断电重开还是这样(开机 BC28_Init 会 AT+NRB 重启模块, 每次都得重新注网)。
++       实测代价: 用户以为板子坏了, 查了一晚上。
++       现在改成一直重试: 超时就把模块 AT+NRB 重启再来一轮。
++       板子宁可慢一点起来, 也绝不出这种"安静地死掉"的状态。
++       注: 主循环里早就有同一套重试(connect_failed -> hard_recover), 只有启动这条路漏了。 */
+     {
+-        printf("! network attach timeout: %s\r\n", BC28_Why(rc));
+-        while (1) { BC28_Idle(500); }
++        uint32_t round = 0;
++
++        for (;;)
++        {
++            round++;
++            printf("+ waiting for network (AT+CEREG?) ... round %lu\r\n",
++                   (unsigned long)round);
++
++            rc = BC28_WaitNet(BC28_TO_NET);
++            if (rc == 0)
++            {
++                break;
++            }
++
++            printf("! network attach timeout: %s\r\n", BC28_Why(rc));
++            printf("! rebooting BC28 (AT+NRB) and trying again ...\r\n");
++            BC28_Reset();
++            BC28_Idle(1000);
++        }
+     }
+     printf("+ attached (CEREG = 1 or 5)\r\n");
+ 
+@@ -525,10 +761,10 @@ int main(void)
              sock = link_up();
              if (sock < 0)
              {
@@ -332,7 +371,7 @@ index 777c5fb..7d8c948 100644
              GPIO_SetBits(GPIOC, GPIO_Pin_3);        /* 板上那颗灯 = 连着 */
          }
  
-@@ -541,10 +756,10 @@ int main(void)
+@@ -541,10 +777,10 @@ int main(void)
  
              if (s2 < 0)
              {

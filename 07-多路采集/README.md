@@ -17,6 +17,7 @@
 | `dht11.c`、`dht11.h` | `Project/HARDWARE/dht11/` | **新增**（目录也是新建的） |
 | `main.c` | `Project/Test/main.c` | 覆盖 |
 | `bc28.c`、`bc28.h` | `Project/HARDWARE/bc28/` | 覆盖 |
+| `stm32l1xx_it.c` | `Project/Test/stm32l1xx_it.c` | 覆盖（**2026-09-15 修正**，见 §六） |
 
 然后按 **`Project.uvproj.diff`** 改工程，**只有两处**：
 
@@ -145,3 +146,86 @@ sqlite3.connect("file:%s?mode=ro" % DB, uri=True)
 8. **★ `AT` 能回 OK ≠ 模块是活的** —— socket 泄漏光时，`CSQ` / `RSRP` 完全正常，只有 `AT+NSOCR` 回 ERROR。
 9. **★ 信号差能解释一切现象，所以它是最危险的答案** —— 一定要拿 AT 侧读数跟故障时间点对照。
 10. **门户加页面，路由要注册在 catch-all 之前** —— 按注册顺序匹配，兜底写在前就永远轮不到。
+11. **★ 启动注网失败时 `while(1)` 死等 = 故障和"板子坏了"一模一样** —— 串口不出声、看板没数据、AT 也不回，**断电重开还是这样**（见 §六）。
+12. **★ 厂家模板的 `HardFault_Handler` 是 `while (1) {}`** —— 一旦触发就是永久静默，正好解释"跑着跑着突然不出声"（见 §六）。
+
+---
+
+## 六、2026-09-15 修正：两条"安静地死掉"的路
+
+这一包的 `main.c` 和 `stm32l1xx_it.c` 是**修正后**的版本。
+修的是同一类毛病：**出问题时不吭声**。两次都是"板子看起来坏了"，实际上固件还活着，只是把嘴闭上了。
+
+对应 diff：`main.c.diff`（`777c5fb..8d75843`）、`stm32l1xx_it.c.diff`（`065abc5..7824b77`）。
+
+### 6.1 启动注网超时不再死等（`main.c`）
+
+**改之前**，`main()` 里 ② 注网那段是：
+
+```c
+rc = BC28_WaitNet(BC28_TO_NET);          /* BC28_TO_NET = 120000, 期间完全静默 */
+if (rc < 0)
+{
+    printf("! network attach timeout: %s\r\n", BC28_Why(rc));
+    while (1) { BC28_Idle(500); }        /* ← 只打一行, 然后永远静默 */
+}
+```
+
+三个要命的性质叠在一起：
+
+- **`BC28_WaitNet()` 轮询期间一句话都不打印**，120 秒内串口本来就没声音 —— 所以"抓串口 0 字节"**不能**证明板子死了；
+- 超时后**只打一行**，然后永久静默：不重试、不复位模块，**看板从此永远不会有数据**；
+- **断电重开救不了** —— 开机 `BC28_Init()` 会发 `AT+NRB` 把模块重启，**每次上电都要重新注网**，等于每次开机重赌一次这 120 秒。
+
+于是症状是：**串口 0 字节、看板没数据、AT 不回、断电重开还是一样** —— 跟"板子烧了"完全无法区分。
+
+**改之后**：超时就 `BC28_Reset()`（`AT+NRB` 重启模块）再来一轮，每轮打印 `round N`，**永不静默退出**。
+
+```c
+for (;;)
+{
+    round++;
+    printf("+ waiting for network (AT+CEREG?) ... round %lu\r\n", (unsigned long)round);
+    rc = BC28_WaitNet(BC28_TO_NET);
+    if (rc == 0) { break; }
+    printf("! network attach timeout: %s\r\n", BC28_Why(rc));
+    printf("! rebooting BC28 (AT+NRB) and trying again ...\r\n");
+    BC28_Reset();
+    BC28_Idle(1000);
+}
+```
+
+**值得说一句的**：主循环里**早就有**同一套自动恢复（`connect_failed()` 连续 5 次失败 → `hard_recover()` → `BC28_Reset()`），
+**只有启动这条路漏了**。写主循环的时候想到了"跑着跑着会掉"，没想到"一开始就没上来"。
+
+### 6.2 `HardFault_Handler` 不再静默（`stm32l1xx_it.c`）
+
+厂家模板里是：
+
+```c
+void HardFault_Handler(void)
+{
+  while (1) { }        /* 触发即永久静默 */
+}
+```
+
+硬故障一旦发生，板子就**永远卡在这儿**，串口一个字没有 —— 这正好是"跑着跑着突然不出声、断电重开又好了、过一阵又犯"的形状，
+而且**现场什么都不留下**，只能靠一通排查才复位回来。
+
+**改之后**：先把 `CFSR` / `HFSR` / `BFAR` 和六个标志位打出来，空转几百毫秒让 9600 波特把话说完，然后 `NVIC_SystemReset()` 自己重启。
+
+打印的**格式**是这样（下面是示意，不是实测抓到的 —— 改完到发这篇为止还没再触发过）：
+
+```
+!! HARDFAULT
+   CFSR=........  HFSR=........  BFAR=........
+   IBUSERR=. PRECISERR=. IMPRECISERR=. UNDEFINSTR=. UNALIGNED=. DIVBYZERO=.
+   resetting ...
+```
+
+有了 `CFSR` 就知道是**取指总线错误 / 精确数据总线错误 / 非对齐访问 / 除零**里的哪一种，不用再猜。
+
+两处实现细节：
+
+- 空转延时**故意不调 `BC28_Millis()`** —— 故障状态下中断和时基都不保证还正常，不能依赖它；
+- `NVIC_SystemReset()` **只重启 MCU，不会重启 BC28**。模块是应用起来后 `BC28_Init()` 里那句 `AT+NRB` 才重启的。
