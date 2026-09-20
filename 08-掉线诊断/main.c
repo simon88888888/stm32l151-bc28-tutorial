@@ -180,7 +180,7 @@ static int  ack_is_data(const char *buf);
 static int  link_up(void);
 static void report_once(void);
 static int  hard_recover(void);
-static void connect_failed(uint32_t wait_ms);
+static void connect_failed(uint32_t wait_ms, int why);
 
 /**
   * @brief  把一个"单位 0.1"的整数打成人看的样子: -683 -> "-68.3", 64 -> "6.4"。
@@ -572,10 +572,38 @@ static int hard_recover(void)
   * @brief  建连失败的统一出口: 记账、必要时重启模块、然后等一会儿。
   *         两个模式(MODE_LONG)都走这里, 免得同一套逻辑写两遍。
   */
-static void connect_failed(uint32_t wait_ms)
+static void connect_failed(uint32_t wait_ms, int why)
 {
-    conn_fail++;
-    printf("- connect failed (%lu in a row), retry in %lu ms\r\n",
+    /* ★★ 2026-09-20 改: 这里原来是**无条件** conn_fail++ —— 于是"一次
+       AT+NSOCO 网络超时"被数成了"socket 层卡死", 攒够 5 次就 NRB。
+
+       整夜实测(2026-09-19 22:10 ~ 2026-09-20 03:47)把这条钉死了:
+         170 次建连失败里 **114 次是 AT+NSOCO 卡满 30 秒**（正好 = BC28_TO_URC）。
+         可**成功建连的中位耗时只有 3 秒、最慢 16 秒** —— 30 秒那一档是另一个
+         世界: 模块压根没回 +NSOCO URC。而且**其中 109 次发生在 RSRP -69 的
+         好小区上**（同夜那个 -101 的弱小区只占 5 次）—— 跟无线好坏无关。
+         这 170 次全被 conn_fail 数了进去, 触发 **19 次 NRB**, 每次离线
+         190~240 秒, 整夜 **38% 的时间离线**（268 分钟 / 11.8 小时）。
+
+       ★ 真正的指纹只有一个, 而且 BC28_Open() 早就把它分出来了:
+         **注着网, 却开不出号**（BC28_E_NOSOCK）。
+       网络超时(BC28_E_TIMEOUT) / 模块回 ERROR(BC28_E_ERROR) / DNS 解析失败
+       都是**会自己好**的东西 —— 一次都不该攒。
+
+       (旁证: 这一夜 "NSOCL failed" 与 "NSOCR failed:" 在串口里的次数是 114 : 0
+        —— 也就是说下面那条正确的判据(主循环的 nosock_run)整夜一次都没触发过。
+        **正确的尺子一次没用上, 错误的尺子用了 19 次**, 和第 7 篇 §2.4 同一个病。) */
+    if (why == BC28_E_NOSOCK)
+    {
+        conn_fail++;            /* 只有"开不出号"才攒 */
+    }
+    else
+    {
+        conn_fail = 0;          /* 会自己好的, 不攒 */
+    }
+
+    printf("- connect failed: %s (%lu in a row), retry in %lu ms\r\n",
+           BC28_Why(why),
            (unsigned long)conn_fail, (unsigned long)wait_ms);
 
     if (conn_fail >= 5)
@@ -1235,7 +1263,7 @@ int main(void)
                     nosock_run = 0;
                     sock = -1;          /* 模块要重启了, 手里这个号马上就不作数 */
                     (void)hard_recover();   /* 里面会 BC28_Reset(), 账本跟着清零 */
-                    connect_failed(3000);
+                    connect_failed(3000, BC28_E_NOSOCK);
                     continue;
                 }
 
@@ -1263,7 +1291,7 @@ int main(void)
             {
                 /* 只有"注着网却开不出号"才记进 nosock_run (见 ④-0 那段) */
                 nosock_run = (sock == BC28_E_NOSOCK) ? (nosock_run + 1) : 0;
-                connect_failed(5000);
+                connect_failed(5000, sock);
                 continue;
             }
             conn_fail = 0;
@@ -1282,7 +1310,7 @@ int main(void)
             {
                 /* 只有"注着网却开不出号"才记进 nosock_run (见 ④-0 那段) */
                 nosock_run = (s2 == BC28_E_NOSOCK) ? (nosock_run + 1) : 0;
-                connect_failed(3000);
+                connect_failed(3000, s2);
                 continue;
             }
             conn_fail = 0;

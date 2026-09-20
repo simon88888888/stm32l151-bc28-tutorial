@@ -2195,11 +2195,32 @@ int BC28_Close(int sock)
         }
     }
 
-    /* 三次都没关掉 = 真漏了一个。打出来 —— 这一行是"泄漏正在发生"最直接的证据,
-       而且它会**在漏光之前**出现(配合账本那行, 能看出是从哪一轮开始斜的)。
-       代价: 下次开 socket 之前我们手里少了一个号, 6 个里少一个。 */
-    printf("! NSOCL=%d failed x%d (%s) -- socket NOT returned\r\n",
-           sock, BC28_CLOSE_TRY, BC28_Why(rc));
+    /* 三次都没关掉, 有**两种**意思（第 7 篇 §3.2）——
+         (a) 真关不掉, 号还攥在模块手里      -> 真漏了一个
+         (b) **这个号本来就没了** —— 模块自己把它收了, 会先发一条 +NSOCLI
+
+       ★ 2026-09-20: 原来两种都打同一句"socket NOT returned", 等于把 (b)
+       谎报成 (a)。整夜实测的 114 次"socket NOT returned"里, **114 次
+       raw 里都有 +NSOCLI（100%）** —— 一次都没真漏, 日志却在喊漏。
+
+       判据就在手边: sock_cli_last 是最近一次 +NSOCLI 报的号（bc28.c 顶部）。
+       ⚠ 这里**只改日志, 不动账本** —— sock_close_n 仍然只记"真回了 OK"的,
+         所以 balance 该怎么斜还怎么斜。动账本要单独做、单独验, 别和
+         connect_failed() 那次改动混在一起（那次的代价是板子离线 10~15 分钟,
+         同样的代价不该为一件诊断的事再付一次）。
+
+       代价（只在真漏的那种情况下）: 下次开 socket 之前手里少一个号, 6 个里少一个。 */
+    if (sock_cli_last == sock)
+    {
+        printf("! NSOCL=%d failed x%d (%s) -- but +NSOCLI:%d came first,\r\n",
+               sock, BC28_CLOSE_TRY, BC28_Why(rc), sock);
+        printf("  so the number IS returned -- this is NOT a leak\r\n");
+    }
+    else
+    {
+        printf("! NSOCL=%d failed x%d (%s) -- socket NOT returned\r\n",
+               sock, BC28_CLOSE_TRY, BC28_Why(rc));
+    }
     return rc;
 }
 

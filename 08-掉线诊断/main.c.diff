@@ -1,5 +1,5 @@
 --- "07-\345\244\232\350\267\257\351\207\207\351\233\206/main.c"	2026-09-15 22:07:28.206392400 +0800
-+++ "08-\346\216\211\347\272\277\350\257\212\346\226\255/main.c"	2026-09-19 21:53:23.337898500 +0800
++++ "08-\346\216\211\347\272\277\350\257\212\346\226\255/main.c"	2026-09-20 09:23:29.833056400 +0800
 @@ -9,11 +9,28 @@
    *    第 2 篇是**人在 PC 上敲 AT**, 证明"这条链路能通";
    *    这一篇把那个过程**搬进固件**, 让它自己跑 —— 不用 PC, 也不用有人看着。
@@ -92,7 +92,7 @@
  #if !MODE_LONG
  /* 短连接模式的建连耗时统计(长连接那一档用不到, 不声明就不会有 unused 警告) */
  static uint32_t conn_n, conn_min, conn_max, conn_sum;
-@@ -118,6 +173,10 @@
+@@ -118,10 +173,14 @@
  static void trim(char *s);
  static void dht_temp_str(char *out, const DHT11_DATA *d);
  static int  wait_reply(int s, char *out, uint16_t cap, int rounds);
@@ -103,6 +103,11 @@
  static int  link_up(void);
  static void report_once(void);
  static int  hard_recover(void);
+-static void connect_failed(uint32_t wait_ms);
++static void connect_failed(uint32_t wait_ms, int why);
+ 
+ /**
+   * @brief  把一个"单位 0.1"的整数打成人看的样子: -683 -> "-68.3", 64 -> "6.4"。
 @@ -281,6 +340,189 @@
      return 0;
  }
@@ -328,7 +333,46 @@
      {
          printf("! rebooted but still not attached\r\n");
          return -1;
-@@ -322,9 +580,43 @@
+@@ -314,17 +572,79 @@
+   * @brief  建连失败的统一出口: 记账、必要时重启模块、然后等一会儿。
+   *         两个模式(MODE_LONG)都走这里, 免得同一套逻辑写两遍。
+   */
+-static void connect_failed(uint32_t wait_ms)
++static void connect_failed(uint32_t wait_ms, int why)
+ {
+-    conn_fail++;
+-    printf("- connect failed (%lu in a row), retry in %lu ms\r\n",
++    /* ★★ 2026-09-20 改: 这里原来是**无条件** conn_fail++ —— 于是"一次
++       AT+NSOCO 网络超时"被数成了"socket 层卡死", 攒够 5 次就 NRB。
++
++       整夜实测(2026-09-19 22:10 ~ 2026-09-20 03:47)把这条钉死了:
++         170 次建连失败里 **114 次是 AT+NSOCO 卡满 30 秒**（正好 = BC28_TO_URC）。
++         可**成功建连的中位耗时只有 3 秒、最慢 16 秒** —— 30 秒那一档是另一个
++         世界: 模块压根没回 +NSOCO URC。而且**其中 109 次发生在 RSRP -69 的
++         好小区上**（同夜那个 -101 的弱小区只占 5 次）—— 跟无线好坏无关。
++         这 170 次全被 conn_fail 数了进去, 触发 **19 次 NRB**, 每次离线
++         190~240 秒, 整夜 **38% 的时间离线**（268 分钟 / 11.8 小时）。
++
++       ★ 真正的指纹只有一个, 而且 BC28_Open() 早就把它分出来了:
++         **注着网, 却开不出号**（BC28_E_NOSOCK）。
++       网络超时(BC28_E_TIMEOUT) / 模块回 ERROR(BC28_E_ERROR) / DNS 解析失败
++       都是**会自己好**的东西 —— 一次都不该攒。
++
++       (旁证: 这一夜 "NSOCL failed" 与 "NSOCR failed:" 在串口里的次数是 114 : 0
++        —— 也就是说下面那条正确的判据(主循环的 nosock_run)整夜一次都没触发过。
++        **正确的尺子一次没用上, 错误的尺子用了 19 次**, 和第 7 篇 §2.4 同一个病。) */
++    if (why == BC28_E_NOSOCK)
++    {
++        conn_fail++;            /* 只有"开不出号"才攒 */
++    }
++    else
++    {
++        conn_fail = 0;          /* 会自己好的, 不攒 */
++    }
++
++    printf("- connect failed: %s (%lu in a row), retry in %lu ms\r\n",
++           BC28_Why(why),
+            (unsigned long)conn_fail, (unsigned long)wait_ms);
  
      if (conn_fail >= 5)
      {
@@ -372,7 +416,7 @@
      BC28_Idle(wait_ms);
  }
  
-@@ -384,6 +676,16 @@
+@@ -384,6 +704,16 @@
      if (rc < 0)
      {
          printf("! send token failed: %s\r\n", BC28_Why(rc));
@@ -389,7 +433,7 @@
          return rc;
      }
  
-@@ -394,6 +696,10 @@
+@@ -394,6 +724,10 @@
      if (wait_reply(s, buf, sizeof(buf), 2) > 0)
      {
          printf("+ server: %s\r\n", buf);
@@ -400,7 +444,7 @@
      }
      else
      {
-@@ -427,6 +733,7 @@
+@@ -427,6 +761,7 @@
      int        rc;
      int        n;
      int        i;
@@ -408,7 +452,7 @@
  
      /* ---- 温湿度 ----
         限流到 DHT11_MIN_PERIOD_MS: 一来手册要求采样间隔 >= 1 秒(敏感元件
-@@ -464,6 +771,37 @@
+@@ -464,6 +799,37 @@
          p += sprintf(p, ",T=-99.0,DHTE=%d", dht_rc);
      }
  
@@ -446,7 +490,7 @@
      p += sprintf(p, "\r\n");            /* 行尾换行, 理由见 link_up() 里那段注释 */
  
      rc = BC28_Send(sock, body, (uint16_t)strlen(body));
-@@ -475,23 +813,44 @@
+@@ -475,23 +841,44 @@
          return;
      }
  
@@ -478,20 +522,20 @@
          n = wait_reply(sock, buf, sizeof(buf), 3);
 -        if ((n > 0) && (strcmp(buf, "AUTH OK") == 0))
 +        if (n <= 0)
-         {
--            printf("  (late) server: %s -- that was the handshake, not this one\r\n", buf);
--            continue;
++        {
 +            break;                      /* 这几轮一个字节都没有, 不用再等 */
-         }
--        break;
++        }
 +
 +        (void)cfg_scan(buf);
 +
 +        if (ack_is_data(buf))
-+        {
+         {
+-            printf("  (late) server: %s -- that was the handshake, not this one\r\n", buf);
+-            continue;
 +            got_ack = 1;
 +            break;                      /* 就是它了 */
-+        }
+         }
+-        break;
 +
 +        printf("  (late) server: %s -- not this round's ACK, keep waiting\r\n", buf);
      }
@@ -501,7 +545,7 @@
      {
          rx_ok++;
          printf("[%lu] %s  <- %s   (server OK %lu, lost %lu)\r\n",
-@@ -535,7 +894,19 @@
+@@ -535,7 +922,19 @@
      printf("### Part 3: uplink to my own server ###\r\n");
      printf("build:  " __DATE__ " " __TIME__ "\r\n");
      printf("server: %s:%u   mode: %s   report: %lu ms\r\n",
@@ -522,7 +566,7 @@
      printf("target is %s -- %s\r\n",
             is_ipv4(SERVER_HOST) ? "an IP" : "a hostname",
             is_ipv4(SERVER_HOST) ? "connecting directly"
-@@ -567,6 +938,57 @@
+@@ -567,6 +966,57 @@
          }
      }
  
@@ -580,7 +624,7 @@
  #if DHT11_SELFTEST
      /* ---- ⓪.5 温湿度自检 ----
         放在模块探测**之前**: 能不能读 DHT11 跟 NB-IoT 链路毫无关系,
-@@ -692,7 +1114,15 @@
+@@ -692,7 +1142,15 @@
         实测代价: 用户以为板子坏了, 查了一晚上。
         现在改成一直重试: 超时就把模块 AT+NRB 重启再来一轮。
         板子宁可慢一点起来, 也绝不出这种"安静地死掉"的状态。
@@ -597,7 +641,7 @@
      {
          uint32_t round = 0;
  
-@@ -708,9 +1138,20 @@
+@@ -708,9 +1166,20 @@
                  break;
              }
  
@@ -621,7 +665,7 @@
              BC28_Idle(1000);
          }
      }
-@@ -746,6 +1187,65 @@
+@@ -746,6 +1215,65 @@
  
          seq++;
  
@@ -673,7 +717,7 @@
 +                    nosock_run = 0;
 +                    sock = -1;          /* 模块要重启了, 手里这个号马上就不作数 */
 +                    (void)hard_recover();   /* 里面会 BC28_Reset(), 账本跟着清零 */
-+                    connect_failed(3000);
++                    connect_failed(3000, BC28_E_NOSOCK);
 +                    continue;
 +                }
 +
@@ -687,13 +731,14 @@
  #if MODE_LONG
          /* 运营商经常把闲着的 socket 掐掉, 掐的时候模块会给一条 +NSOCLI。
             驱动的每次收发都顺手扫它, 这里检查一下就够了 —— 不用另外去 ping。 */
-@@ -761,10 +1261,13 @@
+@@ -761,10 +1289,13 @@
              sock = link_up();
              if (sock < 0)
              {
+-                connect_failed(5000);
 +                /* 只有"注着网却开不出号"才记进 nosock_run (见 ④-0 那段) */
 +                nosock_run = (sock == BC28_E_NOSOCK) ? (nosock_run + 1) : 0;
-                 connect_failed(5000);
++                connect_failed(5000, sock);
                  continue;
              }
              conn_fail = 0;
@@ -701,13 +746,14 @@
              GPIO_SetBits(GPIOC, GPIO_Pin_3);        /* 板上那颗灯 = 连着 */
          }
  
-@@ -777,10 +1280,13 @@
+@@ -777,10 +1308,13 @@
  
              if (s2 < 0)
              {
+-                connect_failed(3000);
 +                /* 只有"注着网却开不出号"才记进 nosock_run (见 ④-0 那段) */
 +                nosock_run = (s2 == BC28_E_NOSOCK) ? (nosock_run + 1) : 0;
-                 connect_failed(3000);
++                connect_failed(3000, s2);
                  continue;
              }
              conn_fail = 0;
@@ -715,7 +761,7 @@
              sock = s2;
              GPIO_SetBits(GPIOC, GPIO_Pin_3);
  
-@@ -802,10 +1308,57 @@
+@@ -802,10 +1336,57 @@
          }
  #endif
  
